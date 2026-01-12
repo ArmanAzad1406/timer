@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Study Timer</title>
+<style>
+  :root{--accent:#4CAF50;--bg:#fff;--muted:#666}
+  body{font-family:Arial,Helvetica,sans-serif;text-align:center;padding:20px;background:var(--bg);color:#111}
+  .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:8px 0}
+  button{margin:5px;padding:8px 14px;font-size:15px;border:1px solid #ccc;border-radius:6px;background:#f7f7f7;cursor:pointer}
+  button.selected{background:var(--accent);color:#fff;border-color:var(--accent)}
+  #timer{font-size:64px;margin:14px 0}
+  #finish-msg{font-size:28px;color:#b00020;display:none;margin-top:12px}
+  .small{font-size:14px;color:var(--muted)}
+  #progress{width:320px;height:12px;background:#eee;border-radius:6px;overflow:hidden;margin:10px auto}
+  #progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#2e8b57);width:0%}
+  input[type=number]{width:80px;padding:6px;border-radius:6px;border:1px solid #ccc}
+  .controls{margin-top:8px}
+  #session-count{margin-left:8px;font-weight:600}
+  @media (max-width:420px){#progress{width:92%}}
+</style>
+</head>
+<body>
+<h1>Study Timer</h1>
+<p class="small">Pick a category and timer type — press Space to start/pause, R to reset.</p>
+
+<div id="categories" class="row" role="tablist" aria-label="Categories">
+  <button data-cat="Maths" class="selected">Maths</button>
+  <button data-cat="English">English</button>
+  <button data-cat="Science">Science</button>
+  <button data-cat="History">History</button>
+  <button data-cat="Other">Other</button>
+</div>
+<p id="current-category">Current category: Maths</p>
+
+<div id="timer">25:00</div>
+<div id="progress" aria-hidden="true"><i></i></div>
+
+<div id="timer-types" class="row" role="tablist" aria-label="Timer types">
+  <button data-type="Work" class="selected">Work</button>
+  <button data-type="Short Break">Short Break</button>
+  <button data-type="Long Break">Long Break</button>
+</div>
+
+<div class="row small">
+  <label>Work (min): <input id="custom-work" type="number" min="1" value="25"></label>
+  <label>Short (min): <input id="custom-short" type="number" min="1" value="5"></label>
+  <label>Long (min): <input id="custom-long" type="number" min="1" value="15"></label>
+</div>
+
+<div id="controls" class="controls">
+  <button id="start">Start</button>
+  <button id="pause">Pause</button>
+  <button id="reset">Reset</button>
+  <span id="session-count" class="small">Sessions: 0</span>
+</div>
+
+<div id="finish-msg">Time’s up!</div>
+
+<!-- small beep sound (data URI) -->
+<audio id="beep" src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAAAB3AgAEABAAZGF0YQAAAAA=" preload="auto"></audio>
+
+<script>
+// State
+let currentCategory = localStorage.getItem('st.category') || 'Maths';
+let currentTimerType = localStorage.getItem('st.type') || 'Work';
+let timerDurations = { Work: 25*60, 'Short Break': 5*60, 'Long Break': 15*60 };
+
+const timerEl = document.getElementById('timer');
+const finishMsg = document.getElementById('finish-msg');
+const currentCatEl = document.getElementById('current-category');
+const progressBar = document.querySelector('#progress > i');
+const beep = document.getElementById('beep');
+const sessionCountEl = document.getElementById('session-count');
+
+let remainingTime = 0;
+let timerInterval = null;
+let endTime = null;
+let sessions = parseInt(localStorage.getItem('st.sessions')||'0',10) || 0;
+
+// Load custom durations
+function loadCustomDurations(){
+  const w = parseInt(document.getElementById('custom-work').value,10) || 25;
+  const s = parseInt(document.getElementById('custom-short').value,10) || 5;
+  const l = parseInt(document.getElementById('custom-long').value,10) || 15;
+  timerDurations.Work = w*60; timerDurations['Short Break']=s*60; timerDurations['Long Break']=l*60;
+  localStorage.setItem('st.custom',JSON.stringify({w:w,s:s,l:l}));
+}
+
+// Initialize inputs from localStorage
+(function initCustomInputs(){
+  const raw = localStorage.getItem('st.custom');
+  if(raw){ try{ const o = JSON.parse(raw); document.getElementById('custom-work').value=o.w; document.getElementById('custom-short').value=o.s; document.getElementById('custom-long').value=o.l; }catch(e){}
+  }
+  loadCustomDurations();
+})();
+
+function formatTime(seconds){
+  const m = Math.floor(seconds/60).toString().padStart(2,'0');
+  const s = (seconds%60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
+
+function updateTimerDisplay(){
+  timerEl.textContent = formatTime(remainingTime);
+  const total = timerDurations[currentTimerType] || 1;
+  const pct = Math.round(((total - remainingTime)/total)*100);
+  progressBar.style.width = pct + '%';
+  document.title = `${formatTime(remainingTime)} — ${currentTimerType}`;
+}
+
+function startTimer(){
+  if(timerInterval) return;
+  finishMsg.style.display='none';
+  if(!remainingTime) remainingTime = timerDurations[currentTimerType];
+  endTime = Date.now() + remainingTime*1000;
+  timerInterval = setInterval(()=>{
+    const sec = Math.max(0, Math.round((endTime - Date.now())/1000));
+    remainingTime = sec;
+    updateTimerDisplay();
+    if(remainingTime<=0){
+      clearInterval(timerInterval); timerInterval=null;
+      finishMsg.style.display='block';
+      beep.play().catch(()=>{});
+      notifyFinish();
+      if(currentTimerType==='Work'){ sessions++; localStorage.setItem('st.sessions',sessions); sessionCountEl.textContent = 'Sessions: ' + sessions; }
+    }
+  },250);
+}
+
+function pauseTimer(){
+  if(!timerInterval) return;
+  clearInterval(timerInterval); timerInterval=null;
+  // recompute remainingTime already tracked
+}
+
+function resetTimer(){
+  clearInterval(timerInterval); timerInterval=null;
+  remainingTime = timerDurations[currentTimerType];
+  finishMsg.style.display='none';
+  updateTimerDisplay();
+}
+
+function notifyFinish(){
+  if(window.Notification && Notification.permission==='granted'){
+    const n = new Notification('Study Timer', { body: `${currentTimerType} finished (${currentCategory}).`, silent:true });
+    setTimeout(()=>n.close(),5000);
+  }
+}
+
+// Category buttons
+document.querySelectorAll('#categories button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    currentCategory = btn.dataset.cat;
+    currentCatEl.textContent = 'Current category: ' + currentCategory;
+    document.querySelectorAll('#categories button').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    localStorage.setItem('st.category',currentCategory);
+  });
+  if(btn.dataset.cat===currentCategory) btn.classList.add('selected');
+});
+currentCatEl.textContent = 'Current category: ' + currentCategory;
+
+// Timer type buttons
+document.querySelectorAll('#timer-types button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    currentTimerType = btn.dataset.type;
+    document.querySelectorAll('#timer-types button').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    loadCustomDurations();
+    remainingTime = timerDurations[currentTimerType];
+    updateTimerDisplay();
+    finishMsg.style.display='none';
+    clearInterval(timerInterval); timerInterval=null;
+    localStorage.setItem('st.type',currentTimerType);
+  });
+  if(btn.dataset.type===currentTimerType) btn.classList.add('selected');
+});
+
+// Controls
+document.getElementById('start').addEventListener('click', startTimer);
+document.getElementById('pause').addEventListener('click', pauseTimer);
+document.getElementById('reset').addEventListener('click', resetTimer);
+
+// Custom input listeners
+['custom-work','custom-short','custom-long'].forEach(id=>{
+  document.getElementById(id).addEventListener('change',()=>{
+    loadCustomDurations();
+    // if currently selected type uses this value, reset display
+    remainingTime = timerDurations[currentTimerType];
+    updateTimerDisplay();
+  });
+});
+
+// Keyboard shortcuts
+window.addEventListener('keydown',(e)=>{
+  if(e.target.tagName==='INPUT') return; // ignore when typing numbers
+  if(e.code==='Space'){ e.preventDefault(); timerInterval?pauseTimer():startTimer(); }
+  if(e.key==='r' || e.key==='R'){ resetTimer(); }
+  if(e.key==='1'){ document.querySelector('#timer-types button[data-type="Work"]').click(); }
+  if(e.key==='2'){ document.querySelector('#timer-types button[data-type="Short Break"]').click(); }
+  if(e.key==='3'){ document.querySelector('#timer-types button[data-type="Long Break"]').click(); }
+});
+
+// Notification permission
+if(window.Notification && Notification.permission!=='granted'){
+  try{ Notification.requestPermission(); }catch(e){}
+}
+
+// Load saved sessions and update display
+sessionCountEl.textContent = 'Sessions: ' + sessions;
+
+// Initialize remainingTime and display
+loadCustomDurations();
+remainingTime = timerDurations[currentTimerType];
+updateTimerDisplay();
+
+</script>
+</body>
+</html>
