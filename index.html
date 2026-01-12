@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Timer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>📚 Study Timer</h1>
+
+    <div class="category">
+      <label for="category">Select Category:</label>
+      <select id="category">
+        <option value="25">Math (25 min)</option>
+        <option value="20">English (20 min)</option>
+        <option value="15">Science (15 min)</option>
+        <option value="10">Break (10 min)</option>
+      </select>
+    </div>
+
+    <div class="timer">
+      <div id="time">00:00</div>
+      <div class="progress-bar">
+        <div id="progress"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="start">Start</button>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+
+  <audio id="alarm" src="https://www.soundjay.com/buttons/sounds/beep-07.mp3"></audio>
+
+  <script src="script.js"></script>
+</body>
+</html>
